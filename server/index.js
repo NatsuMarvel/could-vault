@@ -90,10 +90,24 @@ app.post('/login',loginValidation, async (req,res)=>{
     }
 })
 
-app.get('/profile',authorization, (req,res)=>{
-    res.status(200).json({
-        message: `${req.user} can access`
-    })
+app.get('/profile',authorization, async(req,res)=>{
+    try{
+        const user = await User.findById(req.user,'username email');
+        if(user){
+            return res.status(200).json({
+                username: user.username,
+                email: user.email
+            })
+        }
+        return res.status(404).json({
+            message: 'user not found'
+        })
+    }catch(err){
+        console.log(err);
+        return res.status(500).json({
+            message: 'Internal server error'
+        })
+    }
 })
 
 app.use((err,req,res,next)=>{
