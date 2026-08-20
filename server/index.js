@@ -6,7 +6,9 @@ require('dotenv').config();
 const bcrypt = require('bcrypt');
 
 const findUser = require('./src/middleware/findUser');
-const formValidation = require("./src/middleware/formValidation")
+const formValidation = require("./src/middleware/formValidation");
+const tokenGenerator = require('./src/utils/jwtToken');
+const loginValidation = require('./src/middleware/loginValidation')
 
 
 const mongoose = require('mongoose');
@@ -48,12 +50,42 @@ app.post('/register',formValidation,findUser,async (req,res)=>{
         console.error(err);
         if(err.code === 11000){
            return res.status(409).json({
-            message:'Duplicate key error',
-            error: err.message});
+            message:'Username or email already exists',
+            });
         }
        return res.status(500).json({
             message:'User not registered',
             error: err.message});
+    }
+});
+
+app.post('/login',loginValidation, async (req,res)=>{
+    try{
+        const {email,password} = req.body;
+        const user = await User.findOne({email: email.toLowerCase()});
+        if(user){
+            const isPasswordValid = await bcrypt.compare(password,user.password);
+            if(isPasswordValid){
+                const payload = {id:user._id}
+                const token = tokenGenerator(payload)
+                return res.status(200).json({
+                    message: 'User logged successfully',
+                    token
+                });
+            }else{
+                return res.status(401).json({
+                    message: "Invalid Credentials"
+                });
+            }
+        }
+        return res.status(401).json({
+            message: "User not exists"
+        })
+    }catch(err){
+        console.error(err);
+        return res.status(500).json({
+            message: "Internal Server Error"
+        })
     }
 })
 

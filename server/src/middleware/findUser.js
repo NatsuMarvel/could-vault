@@ -21,7 +21,7 @@ const findUser = async (req,res,next)=>{
         next();
     }catch(err){
         console.error(err);
-        res.status(500).json({
+        return res.status(500).json({
             message:'Internal server error',
             error: err.message});
     }

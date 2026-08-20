@@ -10,8 +10,11 @@ const formValidation = (req, res, next) => {
         return res.status(400).json({ message: 'invalid email' });
     }
 
-    if (typeof password !== 'string' || password.trim() === '' || (!(password.length >=6 && password.length <=16))  ) {
+    if (typeof password !== 'string' || password.trim() === '' ) {
         return res.status(400).json({ message: 'password must not be an empty string' });
+    }
+    if(!(password.length >=6 && password.length <=16)){
+            return res.status(400).json({message: 'password must be greater than 6 char and less than 16 char'})
     }
 
     if (password !== confirmPassword) {
