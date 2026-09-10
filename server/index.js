@@ -4,15 +4,17 @@ const app = express();
 app.use(express.json())
 require('dotenv').config();
 const bcrypt = require('bcrypt');
+const multer = require('multer');
+
 
 const findUser = require('./src/middleware/findUser');
 const formValidation = require("./src/middleware/formValidation");
 const tokenGenerator = require('./src/utils/jwtToken');
 const loginValidation = require('./src/middleware/loginValidation');
-const authorization = require('./src/middleware/auth')
+const authorization = require('./src/middleware/auth');
 
 
-const mongoose = require('mongoose');
+const s3Client = require('./src/config/s3Client');
 const mongoClient = require('./src/config/mongoose');
 
 mongoClient().then(()=>{
@@ -25,8 +27,15 @@ mongoClient().then(()=>{
     console.error(error)
 });
 
+const storage = multer.memoryStorage();
 
+const upload = multer({
+    storage: storage,
+    limits: {fileSize: 5*1024*1024}
+})
 const User = require('./src/models/User');
+const { PutObjectCommand } = require('@aws-sdk/client-s3');
+const Uploads = require('./src/models/uploads');
 
 app.get('/',(req,res)=>{
     res.send('welcome to cloudvalut')
@@ -108,6 +117,41 @@ app.get('/profile',authorization, async(req,res)=>{
             message: 'Internal server error'
         })
     }
+})
+
+app.post('/upload',authorization,upload.single('MyFile'), async(req,res)=>{
+    try{
+        const key = `${Date.now()}-${req.file.originalname}`
+        const upload = new PutObjectCommand({
+            Bucket: process.env.AWS_BUCKET_NAME,
+            Key:key ,
+            Body: req.file.buffer,
+            ContentType: req.file.mimetype
+        });
+        await s3Client.send(upload);
+        
+        const newFile = new Uploads({
+            userId: req.user,
+            bucketName: process.env.AWS_BUCKET_NAME,
+            s3Key:key,
+            fileName:req.file.originalname,
+            contentType: req.file.mimetype,
+            size: req.file.size,
+        })
+
+        await newFile.save();
+
+        return res.status(201).json({
+            message: "File Uploaded Successfully"
+        })
+
+    }catch(error){
+        console.log(error);
+        return res.status(500).json({
+            message: 'Internal server error'
+        })
+    };
+
 })
 
 app.use((err,req,res,next)=>{
