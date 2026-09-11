@@ -154,6 +154,22 @@ app.post('/upload',authorization,upload.single('MyFile'), async(req,res)=>{
 
 })
 
+app.get('/files',authorization,async(req,res)=>{
+    try{
+        const files = await Uploads.find({userId: req.user},'fileName contentType size');
+        return res.status(200).json({
+            files
+        })
+        
+
+    }catch(err){
+        console.log(err);
+        return res.status(500).json({
+            message: 'Internal Server Error'
+        })
+    }
+})
+
 app.use((err,req,res,next)=>{
     console.error(err);
 
