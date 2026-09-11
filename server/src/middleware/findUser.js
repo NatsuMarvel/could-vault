@@ -1,3 +1,5 @@
+const User = require('../models/User');
+
 const findUser = async (req,res,next)=>{
     try{
         const {username,email} = req.body;
