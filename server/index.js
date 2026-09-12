@@ -35,8 +35,9 @@ const upload = multer({
     limits: {fileSize: 5*1024*1024}
 })
 const User = require('./src/models/User');
-const { PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
+const { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
 const Uploads = require('./src/models/uploads');
+const { error } = require('console');
 
 app.get('/',(req,res)=>{
     res.send('welcome to cloudvalut')
@@ -196,6 +197,51 @@ app.get('/files/:id/download',authorization, async(req,res)=>{
         console.log(err);
         res.status(500).json({
             message: 'Internal Server Error'
+        })
+    }
+})
+
+app.delete('/files/:id',authorization,async(req,res)=>{
+    try{
+        
+        const file = await Uploads.findOne({_id:req.params.id, userId: req.user});
+        
+        if(!file){
+            return res.status(404).json({
+                message: 'File Not Found'
+            })
+        }
+
+        const deleteObject = new DeleteObjectCommand({
+            Bucket: process.env.AWS_BUCKET_NAME,
+            Key: file.s3Key
+        })
+
+        await s3Client.send(deleteObject);
+        
+        const isFileDeleted = await file.deleteOne();
+
+        if(isFileDeleted.deletedCount ===1){
+            return res.status(200).json({
+                message: "File deleted successfully"
+            })
+        }
+        else{
+            console.error('File deletion failed:', {
+                fileId: file._id,
+                userId: req.user,
+                s3Key: file.s3Key,
+                fileName: file.fileName
+            });
+            return res.status(500).json({
+                message: "Internal Server Error"
+            })
+        }
+        
+    }catch(error){
+        console.log(error);
+        return res.status(500).json({
+            message: "Internal Server Error"
         })
     }
 })
