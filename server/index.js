@@ -5,6 +5,7 @@ app.use(express.json())
 require('dotenv').config();
 const bcrypt = require('bcrypt');
 const multer = require('multer');
+const {Readable} = require('stream');
 
 
 const findUser = require('./src/middleware/findUser');
@@ -34,7 +35,7 @@ const upload = multer({
     limits: {fileSize: 5*1024*1024}
 })
 const User = require('./src/models/User');
-const { PutObjectCommand } = require('@aws-sdk/client-s3');
+const { PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
 const Uploads = require('./src/models/uploads');
 
 app.get('/',(req,res)=>{
@@ -170,12 +171,41 @@ app.get('/files',authorization,async(req,res)=>{
     }
 })
 
+app.get('/files/:id/download',authorization, async(req,res)=>{
+    try{
+        const isFileExists =await Uploads.findOne({_id: req.params.id,userId:req.user})
+        if(isFileExists){
+            const getFile = new GetObjectCommand({
+                Key: isFileExists.s3Key,
+                Bucket:process.env.AWS_BUCKET_NAME
+            })
+            const results =await s3Client.send(getFile);
+            res.attachment(isFileExists.fileName);
+            res.contentType(isFileExists.contentType);
+
+
+            const stream = Readable.fromWeb(results.Body.transformToWebStream());
+
+            return stream.pipe(res);
+        }
+        return res.status(404).json({
+            message: "File Not Found"
+        })
+
+    }catch(err){
+        console.log(err);
+        res.status(500).json({
+            message: 'Internal Server Error'
+        })
+    }
+})
+
 app.use((err,req,res,next)=>{
     console.error(err);
 
     res.status(500).json({
         error: err,
-        message: "internal server error"
+        message: "Internal Server Error"
     })
 })
 
