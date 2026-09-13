@@ -18,6 +18,8 @@ const authorization = require('./src/middleware/auth');
 const s3Client = require('./src/config/s3Client');
 const mongoClient = require('./src/config/mongoose');
 
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
 mongoClient().then(()=>{
     console.log('db is connected');
     app.listen(8000,()=>{
@@ -32,12 +34,13 @@ const storage = multer.memoryStorage();
 
 const upload = multer({
     storage: storage,
-    limits: {fileSize: 5*1024*1024}
+    limits: {fileSize: MAX_FILE_SIZE}
 })
 const User = require('./src/models/User');
-const { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadBucketCommand, HeadObjectCommand, GetBucketPolicyStatus$ } = require('@aws-sdk/client-s3');
 const Uploads = require('./src/models/uploads');
-const { error } = require('console');
+const { getSignedUrl  } = require('@aws-sdk/s3-request-presigner');
+const { createPresignedPost } = require('@aws-sdk/s3-presigned-post');
 
 app.get('/',(req,res)=>{
     res.send('welcome to cloudvalut')
@@ -246,6 +249,136 @@ app.delete('/files/:id',authorization,async(req,res)=>{
     }
 })
 
+app.get('/files/:id/download-url',authorization,async(req,res)=>{
+    try{
+        const file = await Uploads.findOne({_id:req.params.id,userId:req.user});
+
+        if(!file){
+            return res.status(404).json({
+                message: "File Not Found"
+            })
+        }
+
+        const downloadFile = new GetObjectCommand({
+            Bucket: process.env.AWS_BUCKET_NAME,
+            Key : file.s3Key
+        })
+
+        const downloadUrl = await getSignedUrl(s3Client,downloadFile,{expiresIn:360})
+
+        return res.status(200).json({
+            url: downloadUrl
+        })
+
+    }catch(error){
+        console.log(error);
+        return res.status(500).json({
+            message: "Internal Server Error"
+        })
+    }
+})
+
+app.post('/upload-url',authorization,async(req,res)=>{
+    try{
+        const {fileName, fileType, fileSize} = req.body;
+
+        if(!fileName || !fileType || typeof fileSize !== "number"){
+            return res.status(400).json({
+                message : "fileName, fileType and fileSize are required"
+            })
+        }
+
+        if(fileSize > MAX_FILE_SIZE){
+            return res.status(400).json({
+                message : "fileSize should be less than 5MB"
+            })
+        }
+
+        const Key = `users/${req.user}/${Date.now()}-${fileName}`;
+
+        const presignedURL = await createPresignedPost(s3Client,{
+            Bucket : process.env.AWS_BUCKET_NAME,
+            Key,
+            Conditions:[
+                ['content-length-range',0,MAX_FILE_SIZE],
+                ['eq','$Content-Type',fileType]
+            ],
+            Fields:{
+                'Content-Type' : fileType
+            },
+            Expires: 180
+            
+        })
+
+
+        return res.status(200).json({
+            message: "URL generated successfully",
+            url: presignedURL.url,
+            fileds: presignedURL.fields,
+            key: Key
+        })
+
+    }catch(error){
+        console.log(error);
+        return res.status(500).json({
+            message: "Internal Server Error"
+        })
+    }
+})
+
+app.post('/upload-complete', authorization, async(req,res)=>{
+    try{
+        const {key, fileName, fileType, fileSize} = req.body;
+
+        if(!key || !fileName || !fileType || typeof fileSize !== "number"){
+            return res.status(400).json({
+                message: "key, fileName, fileType and fileSize are required"
+            })
+        }
+
+        const parts = key.split('/');
+
+        if(parts.length < 3 || parts[0] !== 'users' ||parts[1] != req.user ){
+            return res.status(403).json({
+                message: 'Access denied'
+            })
+        }
+
+        const fileCommand = new HeadObjectCommand({
+            Bucket: process.env.AWS_BUCKET_NAME,
+            Key: key
+        })
+
+        const file = await s3Client.send(fileCommand);
+
+        if(file.ContentLength > MAX_FILE_SIZE || fileSize > MAX_FILE_SIZE){
+            return res.status(400).json({
+                message: "fileSize should be less than 5MB"
+            })
+        }
+
+        const newFile = new Uploads({
+            userId: req.user,
+            bucketName: process.env.AWS_BUCKET_NAME,
+            s3Key: key,
+            fileName: fileName,
+            contentType: file.ContentType ?? fileType,
+            size: file.ContentLength ?? fileSize
+        });
+
+        await newFile.save();
+
+        return res.status(200).json({
+            message: "File Uploaded Successfully"
+        })
+
+    }catch(error){
+        console.log(error);
+        return res.status(500).json({
+            message: "Internal Server Error"
+        })
+    }
+})
 app.use((err,req,res,next)=>{
     console.error(err);
 
