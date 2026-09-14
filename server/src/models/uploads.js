@@ -12,7 +12,8 @@ const uploadSchema = new mongoose.Schema({
     },
     s3Key:{
         required: true,
-        type: String
+        type: String,
+        unique: true
     },
     fileName: {
         required: true,
